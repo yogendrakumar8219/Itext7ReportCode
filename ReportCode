@@ -1,0 +1,1210 @@
+using AutoMapper;
+using FileTracking.Dal;
+using FileTracking.Domain.Models;
+using FileTracking.Domain.ViewModels;
+using FileTracking.Service;
+using FileTracking.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using iText.Kernel.Pdf;
+using iText.Layout.Element;
+using iText.Layout.Properties;
+using iText.Layout;
+using iText.Kernel.Geom;
+using Path = System.IO.Path;
+using Table = iText.Layout.Element.Table;
+using Image = iText.Layout.Element.Image;
+using iText.IO.Image;
+using System.Data;
+using iText.Layout.Borders;
+using System.Data.Entity;
+using Rectangle = iText.Kernel.Geom.Rectangle;
+
+namespace FileTracking.Web.Controllers
+{
+    public class FileController : Controller
+    {
+        private readonly AppDbContext context, contextTransaction;
+        private readonly UserManager<ApplicationUser> userManager;
+        private IRepository<FileTable> fileTableRepository;
+        private IService service;
+        private IMapper _mapper;
+        private readonly IWebHostEnvironment hostingEnvironment;
+        private readonly IDataProtector protector;
+        private static TimeZoneInfo INDIAN_ZONE = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+        public DateTime dateTimenow;
+        public const string SessionKeyFileTableRemark = "_FileTableRemark";
+        public FileController(IRepository<FileTable> fileTableRepository, IService service, IMapper mapper, AppDbContext context,
+            UserManager<ApplicationUser> userManager, IWebHostEnvironment hostingEnvironment, IDataProtectionProvider dataProtectionProvider,
+                              DataProtectionPurposeStrings dataProtectionPurposeStrings)
+        {
+            this.fileTableRepository = fileTableRepository;
+            this.service = service;
+            this._mapper = mapper;
+            this.context = context;
+            this.contextTransaction = context;
+            this.userManager = userManager;
+            this.hostingEnvironment = hostingEnvironment;
+            // Pass the purpose string as a parameter
+            this.protector = dataProtectionProvider.CreateProtector(
+                dataProtectionPurposeStrings.FileTrackingIdRouteValue);
+        }
+        [HttpGet]
+        [Authorize(Roles = "admin,head,user,dispatcher")]
+        public async Task<IActionResult> FileList()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+            int sno = 1;
+            List<FileCategory> fileCategories = context.FileCategorys.ToList();
+            List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false).ToList(); //&& x.UserId==usera.UserId).ToList();
+            var allrecord = from e in fileTableVMs
+                            join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                            join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                            orderby e.FileTableId descending
+                            select new FileTableVM()
+                            {
+                                EncryptedId = protector.Protect(e.UID.ToString()),
+                                FileCategory = cat,
+                                FileCategoryId = cat.FileCategoryId,
+                                FileCategoryOther = e.FileCategoryOther,
+                                FileClassification = cla,
+                                FileClassificationId = cla.FileClassificationId,
+                                FileClassificationOther = e.FileClassificationOther,
+                                FileTableId = e.FileTableId,
+                                Sno = sno++,
+                                UID = e.UID,
+                                FileNumber = e.FileNumber,
+                                FileOpenDate = e.FileOpenDate,
+                                Subject = e.Subject,
+                                //QrCodeUri= service.GetBarcode(e.UID),
+                                IsClose = e.IsClose,
+                            };
+            ViewBag.Title = "List of File";
+            return View(allrecord);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> MyFiles()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+            int sno = 1;
+            List<FileCategory> fileCategories = context.FileCategorys.ToList();
+            List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose==false && x.UserId == userId).ToList(); //&& x.UserId==usera.UserId).ToList();
+            var allrecord = from e in fileTableVMs
+                            join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                            join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                            orderby e.FileTableId descending
+                            select new FileTableVM()
+                            {
+                                EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                FileCategory = cat,
+                                FileCategoryId = cat.FileCategoryId,
+                                FileCategoryOther = e.FileCategoryOther,
+                                FileClassification = cla,
+                                FileClassificationId=cla.FileClassificationId,
+                                FileClassificationOther=e.FileClassificationOther,
+                                FileTableId = e.FileTableId,
+                                Sno = sno++,
+                                UID = e.UID,
+                                FileNumber = e.FileNumber,
+                                FileOpenDate = e.FileOpenDate,
+                                Subject = e.Subject,
+                                //QrCodeUri= service.GetBarcode(e.UID),
+                                IsClose=e.IsClose,
+                            };
+            ViewBag.Title = "List of My File";
+            return View(allrecord);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> MyCloseFiles()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+            int sno = 1;
+            List<FileCategory> fileCategories = context.FileCategorys.ToList();
+            List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose==true && x.UserId == userId).ToList(); //&& x.UserId==usera.UserId).ToList();
+            var allrecord = from e in fileTableVMs
+                            join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                            join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                            orderby e.FileTableId descending
+                            select new FileTableVM()
+                            {
+                                EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                FileCategory = cat,
+                                FileCategoryId = cat.FileCategoryId,
+                                FileCategoryOther = e.FileCategoryOther,
+                                FileClassification = cla,
+                                FileClassificationId = cla.FileClassificationId,
+                                FileClassificationOther = e.FileClassificationOther,
+                                FileTableId = e.FileTableId,
+                                Sno = sno++,
+                                UID = e.UID,
+                                FileNumber = e.FileNumber,
+                                FileOpenDate = e.FileOpenDate,
+                                Subject = e.Subject,
+                                //QrCodeUri= service.GetBarcode(e.UID),
+                                IsClose = e.IsClose,
+                            };
+            ViewBag.Title = "List of My Closed Files";
+            return View(allrecord);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> IndexSectionFiles()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            ApplicationUser applUser = context.Users.FirstOrDefault(u => u.Id == Convert.ToInt32(userId));
+            List<int> UserIds = context.Users.Where(x => x.SectionTableId == applUser.SectionTableId).Select(x => x.Id).ToList();
+
+            int sno = 1;
+            List<FileCategory> fileCategories = context.FileCategorys.ToList();
+            List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose==false && UserIds.Contains(Convert.ToInt32(x.UserId))).ToList();
+            var allrecord = from e in fileTableVMs
+                            join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                            join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                            orderby e.FileTableId descending
+                            select new FileTableVM()
+                            {
+                                EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                FileCategory = cat,
+                                FileCategoryId = cat.FileCategoryId,
+                                FileCategoryOther = e.FileCategoryOther,
+                                FileClassification = cla,
+                                FileClassificationId = cla.FileClassificationId,
+                                FileClassificationOther = e.FileClassificationOther,
+                                FileTableId = e.FileTableId,
+                                Sno = sno++,
+                                UID = e.UID,
+                                FileNumber = e.FileNumber,
+                                FileOpenDate = e.FileOpenDate,
+                                Subject = e.Subject,
+                                //QrCodeUri= service.GetBarcode(e.UID),
+                                IsClose = e.IsClose,
+                            };
+            ViewBag.Title = "List Of Section Files";
+            return View(allrecord);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> IndexSectionCloseFiles()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            ApplicationUser applUser = context.Users.FirstOrDefault(u => u.Id == Convert.ToInt32(userId));
+            List<int> UserIds = context.Users.Where(x => x.SectionTableId == applUser.SectionTableId).Select(x => x.Id).ToList();
+
+            int sno = 1;
+            List<FileCategory> fileCategories = context.FileCategorys.ToList();
+            List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose == true && UserIds.Contains(Convert.ToInt32(x.UserId))).ToList();
+            var allrecord = from e in fileTableVMs
+                            join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                            join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                            orderby e.FileTableId descending
+                            select new FileTableVM()
+                            {
+                                EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                FileCategory = cat,
+                                FileCategoryId = cat.FileCategoryId,
+                                FileCategoryOther = e.FileCategoryOther,
+                                FileClassification = cla,
+                                FileClassificationId = cla.FileClassificationId,
+                                FileClassificationOther = e.FileClassificationOther,
+                                FileTableId = e.FileTableId,
+                                Sno = sno++,
+                                UID = e.UID,
+                                FileNumber = e.FileNumber,
+                                FileOpenDate = e.FileOpenDate,
+                                Subject = e.Subject,
+                                //QrCodeUri= service.GetBarcode(e.UID),
+                                IsClose = e.IsClose,
+                            };
+            ViewBag.Title = "List Of Section Closed Files";
+            return View(allrecord);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> OtherSectionCloseFiles()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            var UserList = context.Users.Where(x => x.SectionTableId == usera.SectionTableId).ToList();
+            var UserRoleList = context.UserRoles.ToList();
+            var UserRoleNameList = context.Roles.ToList();
+
+            ApplicationUser? applicationUser = (from e in UserList
+                                                join r in UserRoleList on e.Id equals r.UserId
+                                                join n in UserRoleNameList on r.RoleId equals n.Id
+                                                where n.Id == 3
+                                                select new ApplicationUser()
+                                                {
+                                                    Id = e.Id,
+                                                    UserId = e.UserId,
+                                                    Seniority = e.Seniority,
+                                                    AppointmentName = e.AppointmentName,
+                                                    SectionTableId = e.SectionTableId,
+                                                }).FirstOrDefault();
+            if(applicationUser!=null)
+            {
+                int sno = 1;
+                List<FileCategory> fileCategories = context.FileCategorys.ToList();
+                List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+                List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose == true && x.CloseWithInSection==false && x.CloseBy== applicationUser.Id.ToString()).ToList();
+                var allrecord = from e in fileTableVMs
+                                join cat in fileCategories on e.FileCategoryId equals cat.FileCategoryId
+                                join cla in fileClassifications on e.FileClassificationId equals cla.FileClassificationId
+                                orderby e.FileTableId descending
+                                select new FileTableVM()
+                                {
+                                    EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                    FileCategory = cat,
+                                    FileCategoryId = cat.FileCategoryId,
+                                    FileCategoryOther = e.FileCategoryOther,
+                                    FileClassification = cla,
+                                    FileClassificationId = cla.FileClassificationId,
+                                    FileClassificationOther = e.FileClassificationOther,
+                                    FileTableId = e.FileTableId,
+                                    Sno = sno++,
+                                    UID = e.UID,
+                                    FileNumber = e.FileNumber,
+                                    FileOpenDate = e.FileOpenDate,
+                                    Subject = e.Subject,
+                                    //QrCodeUri= service.GetBarcode(e.UID),
+                                    IsClose = e.IsClose,
+                                    CloseDate = e.CloseDate,
+                                    CloseBy = e.CloseBy!=null? (from u in UserList
+                                                               where u.Id == Convert.ToInt32(e.CloseBy)
+                                                               select u.AppointmentName).FirstOrDefault():"NA",
+                                };
+                ViewBag.Title = "List Of Other Section Closed Files";
+                return View(allrecord);
+            }
+            else
+            {
+                return View();
+            }
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> FileDetail(string Id)
+        {
+            string decryptedId = string.Empty;
+            int decryptedIntId = 0;
+            try
+            {
+                // Decrypt the  id using Unprotect method
+                decryptedId = protector.Unprotect(Id);
+                decryptedIntId = Convert.ToInt32(decryptedId);
+            }
+            catch (Exception ex)
+            {
+                return RedirectToAction("Error", "Error");
+            }
+
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            ApplicationUser applUser = context.Users.FirstOrDefault(u => u.Id == Convert.ToInt32(userId));
+            List<int> UserIds = context.Users.Where(x => x.SectionTableId == applUser.SectionTableId).Select(x => x.Id).ToList();
+
+            int sno = 1;
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && UserIds.Contains(Convert.ToInt32(x.UserId))).ToList();
+            if(fileTableVMs.Count>0)
+            {
+                FileTable fileTable = context.FileTables.FirstOrDefault(x=>x.FileTableId == decryptedIntId);
+                if(fileTable!=null)
+                {
+                    List<FileCategory> fileCategories = context.FileCategorys.ToList();
+                    List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+                    List<SectionTable> sectionTables = context.SectionTables.ToList();
+
+                    FileTable filedetail = context.FileTables.Where(x => x.FileTableId == fileTable.FileTableId)
+                                    .Include(x => x.FileClassification)
+                                    .Include(x => x.FileCategory)
+                                    .Include(x => x.SectionTableId)
+                                    .First();
+                    FileTableVM fileTableVM = _mapper.Map<FileTable, FileTableVM>(filedetail);
+
+                    //FileTableVM fileTableVM = new FileTableVM();
+                    //fileTableVM.EncryptedId = protector.Protect(fileTable.FileTableId.ToString());
+                    //fileTableVM.FileTableId = fileTable.FileTableId;
+                    //fileTableVM.FileType = fileTable.FileType;
+                    //fileTableVM.FileNumber = fileTable.FileNumber;
+                    //fileTableVM.FileOpenDate = fileTable.FileOpenDate;
+                    //fileTableVM.Subject = fileTable.Subject;
+                    //fileTableVM.Remark = fileTable.Remark;
+                    //ViewBag.Title = "Details of File";
+                    //return View(fileTableVM);
+                    return View(fileTableVM);
+                }
+                else
+                {
+                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to see file detail"));
+                    return RedirectToAction("IndexSectionFiles");
+                }
+            }
+            else
+            {
+                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to see file detail"));
+                return RedirectToAction("IndexSectionFiles");
+            }
+
+        }
+        [Authorize]
+        public async Task<IActionResult> FileClose(string Id)
+        {
+            string decryptedId = string.Empty;
+            int decryptedIntId = 0;
+            try
+            {
+                // Decrypt the  id using Unprotect method
+                decryptedId = protector.Unprotect(Id);
+                decryptedIntId = Convert.ToInt32(decryptedId);
+            }
+            catch (Exception ex)
+            {
+                return RedirectToAction("Error", "Error");
+            }
+
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            var UserList = context.Users.Where(x => x.SectionTableId == usera.SectionTableId).ToList();
+            var UserRoleList = context.UserRoles.ToList();
+            var UserRoleNameList = context.Roles.ToList();
+
+            ApplicationUser? applicationUser = (from e in UserList
+                                                join r in UserRoleList on e.Id equals r.UserId
+                                                join n in UserRoleNameList on r.RoleId equals n.Id
+                                                where n.Id == 3
+                                                select new ApplicationUser()
+                                                {
+                                                    Id = e.Id,
+                                                    UserId = e.UserId,
+                                                    Seniority = e.Seniority,
+                                                    AppointmentName = e.AppointmentName,
+                                                    SectionTableId = e.SectionTableId,
+                                                }).FirstOrDefault();
+
+
+            FileTable fileTable = context.FileTables.FirstOrDefault(x => x.IsDeleted == false && x.FileTableId == decryptedIntId);
+            if (fileTable!=null)
+            {
+                if (fileTable.UserId == userId)
+                {
+                    if (fileTable.IsClose == false)
+                    {
+                        bool result = await service.CheckBeforeClose(decryptedIntId, userId);
+                        if (result)
+                        {
+                            fileTable.CloseWithInSection = true;
+                            fileTable.IsClose = true;
+                            fileTable.CloseDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                            fileTable.CloseBy = userId;
+                            fileTable.SectionTableId = usera.SectionTableId;
+                            context.SaveChanges();
+
+                            HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "File Successfully Closed."));
+                            return RedirectToAction("MyFiles");
+                        }
+                        else
+                        {
+                            HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "File not closed because file is out of section."));
+                            return RedirectToAction("MyFiles");
+                        }
+                    }
+                    else
+                    {
+                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "File already closed."));
+                        return RedirectToAction("MyFiles");
+                    }
+                }
+                else if(applicationUser!=null)
+                {
+                    if(applicationUser.Id.ToString()== userId)
+                    {
+                        List<int> UserIds = context.Users.Where(x => x.SectionTableId == applicationUser.SectionTableId).Select(x => x.Id).ToList();
+                        List<OutTable> outTablesFinalSubmit = context.OutTables.Where(x => x.FileTableId == fileTable.FileTableId && x.CancelFwd == false && x.FinalSubmit == false ).ToList();
+                        
+                        List<OutTable> outTables = context.OutTables.Where(x => x.FileTableId == fileTable.FileTableId && x.CancelFwd == false && x.FinalSubmit == true).ToList();
+                        List<InTable> inTables = context.InTables.Where(x => x.FileTableId == fileTable.FileTableId && x.CancelBySender == false && x.InDate != null).ToList();
+
+                        OutTable LastOutRecord = new OutTable();
+                        InTable LastInRecord = new InTable();
+
+                        LastOutRecord = outTables.OrderByDescending(x => x.OutDate).FirstOrDefault();
+                        LastInRecord = inTables.OrderByDescending(x => x.InDate).FirstOrDefault();
+
+                        if (outTablesFinalSubmit.Count() == 1)
+                        {
+                            HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "File not closed because file is out of section."));
+                            return RedirectToAction("MyFiles");
+                        }
+
+                        if (UserIds.Contains(Convert.ToInt32(fileTable.UserId)))
+                        {
+                            if (outTables.Count() == 0 && inTables.Count() == 0)
+                            {
+                                fileTable.CloseWithInSection = true;
+                                fileTable.IsClose = true;
+                                fileTable.CloseDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                                fileTable.CloseBy = userId;
+                                fileTable.SectionTableId = usera.SectionTableId;
+                                context.SaveChanges();
+
+                                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "File Successfully Closed."));
+                                return RedirectToAction("MyFiles");
+                            }
+                            else if (LastOutRecord.SectionTableId == 44)
+                            {
+                                if (LastInRecord != null)
+                                {
+                                    if (LastInRecord.UserId == userId)
+                                    {
+                                        fileTable.CloseWithInSection = true;
+                                        fileTable.IsClose = true;
+                                        fileTable.CloseDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                                        fileTable.CloseBy = userId;
+                                        fileTable.SectionTableId = usera.SectionTableId;
+                                        context.SaveChanges();
+
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "File Successfully Closed."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+                                    else
+                                    {
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+
+                                }
+                                else
+                                {
+                                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                    return RedirectToAction("MyFiles");
+                                }
+                            }
+                            else
+                            {
+                                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                return RedirectToAction("MyFiles");
+                            }
+                        }
+                        else if(LastOutRecord!=null)
+                        {
+                            if(LastOutRecord.SectionTableId==44)
+                            {
+                                if(LastInRecord!=null)
+                                {
+                                    if(LastInRecord.UserId == userId)
+                                    {
+                                        fileTable.IsClose = true;
+                                        fileTable.CloseDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                                        fileTable.CloseBy = userId;
+                                        fileTable.SectionTableId = usera.SectionTableId;
+                                        context.SaveChanges();
+
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "File Successfully Closed."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+                                    else
+                                    {
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+
+                                }
+                                else
+                                {
+                                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                    return RedirectToAction("MyFiles");
+                                }
+                            }
+                            else
+                            {
+                                InTable inTable = context.InTables.FirstOrDefault(x => x.OutTableId == LastOutRecord.OutTableId);
+                                if(inTable!=null)
+                                {
+                                    if(inTable.UserId== userId)
+                                    {
+                                        fileTable.IsClose = true;
+                                        fileTable.CloseDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                                        fileTable.CloseBy = userId;
+                                        fileTable.SectionTableId = usera.SectionTableId;
+                                        context.SaveChanges();
+
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "File Successfully Closed."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+                                    else
+                                    {
+                                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                        return RedirectToAction("MyFiles");
+                                    }
+
+                                }
+                                else
+                                {
+                                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                                    return RedirectToAction("MyFiles");
+                                }
+                            }
+
+                        }
+                        else
+                        {
+                            HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                            return RedirectToAction("MyFiles");
+                        }
+                    }
+                    else
+                    {
+                        HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                        return RedirectToAction("MyFiles");
+                    }
+                }
+                else
+                {
+                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                    return RedirectToAction("MyFiles");
+                }
+            }
+            else
+            {
+                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to closed this file."));
+                return RedirectToAction("MyFiles");
+            }
+
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<ActionResult> PdfBarcode(string Id)
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var user = await userManager.FindByIdAsync(userId);
+
+            string decryptedId = string.Empty;
+            int decryptedIntId = 0;
+            try
+            {
+                // Decrypt the  id using Unprotect method
+                decryptedId = protector.Unprotect(Id);
+                decryptedIntId = Convert.ToInt32(decryptedId);
+            }
+            catch (Exception ex)
+            {
+                return RedirectToAction("Error", "Error");
+            }
+            FileTable? fileTable = context.FileTables.FirstOrDefault(x => x.FileTableId == decryptedIntId);
+            if(fileTable!=null)
+            {
+                string? FilePath = PdfBarcodeFile(fileTable.FileTableId);
+                if(FilePath!=null)
+                {
+                    if (System.IO.File.Exists(FilePath))
+                    {
+                        return File(System.IO.File.OpenRead(FilePath), "application/octet-stream", Path.GetFileName(FilePath));
+                    }
+                    return RedirectToAction("MyFiles");
+                }
+                else
+                {
+                    return RedirectToAction("Error", "Error");
+                }
+            }
+            else
+            {
+                return RedirectToAction("Error", "Error");
+            }
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<ActionResult> PdfDetail(string Id)
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var user = await userManager.FindByIdAsync(userId);
+
+            string decryptedId = string.Empty;
+            int decryptedIntId = 0;
+            try
+            {
+                // Decrypt the  id using Unprotect method
+                decryptedId = protector.Unprotect(Id);
+                decryptedIntId = Convert.ToInt32(decryptedId);
+            }
+            catch (Exception ex)
+            {
+                return RedirectToAction("Error", "Error");
+            }
+            FileTable? fileTable = context.FileTables.FirstOrDefault(x => x.FileTableId == decryptedIntId);
+            if (fileTable != null)
+            {
+                string? FilePath = PdfDetailFile(fileTable.FileTableId);
+                if (FilePath != null)
+                {
+                    if (System.IO.File.Exists(FilePath))
+                    {
+                        return File(System.IO.File.OpenRead(FilePath), "application/octet-stream", Path.GetFileName(FilePath));
+                    }
+                    return RedirectToAction("MyFiles");
+                }
+                else
+                {
+                    return RedirectToAction("Error", "Error");
+                }
+            }
+            else
+            {
+                return RedirectToAction("Error", "Error");
+            }
+        }
+
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> GenerateBarcodePdfFile()
+        {
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            ApplicationUser applUser = context.Users.FirstOrDefault(u => u.Id == Convert.ToInt32(userId));
+            List<int> UserIds = context.Users.Where(x => x.SectionTableId == applUser.SectionTableId).Select(x => x.Id).ToList();
+
+            int sno = 1;
+            List<FileTable> fileTableVMs = context.FileTables.Where(x => x.IsDeleted == false && x.IsClose == false && UserIds.Contains(Convert.ToInt32(x.UserId))).ToList();
+            List<FileTableVM> allrecord = (from e in fileTableVMs
+                                            orderby e.FileTableId descending
+                                            select new FileTableVM()
+                                            {
+                                                EncryptedId = protector.Protect(e.FileTableId.ToString()),
+                                                FileTableId = e.FileTableId,
+                                                Sno = sno++,
+                                                FileNumber = e.FileNumber,
+                                                FileOpenDate = e.FileOpenDate,
+                                                Subject = e.Subject,
+                                                Remark = e.Remark,
+                                                QrCodeUri = service.GetBarcode(e.UID)
+                                            }).ToList();
+            ViewBag.Title = "List Of Section Files";
+            return View(allrecord);
+        }
+        [HttpPost]
+        [Authorize]
+        public async Task<IActionResult> GenerateBarcodePdfFile(List<FileTableVM> model)
+        {
+            List<int> FileTableIds = new List<int>();
+            if(model.Count>0)
+            {
+                foreach (var item in model)
+                {
+                    if (item.IsSelected == true)
+                    {
+                        FileTableIds.Add(item.FileTableId);
+                    }
+                }
+                string FilePath = ManipulatePdf(FileTableIds);
+                if (System.IO.File.Exists(FilePath))
+                {
+                    return File(System.IO.File.OpenRead(FilePath), "application/octet-stream", Path.GetFileName(FilePath));
+                }
+                return RedirectToAction("Index");
+            }
+            else 
+            {
+                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Nothing Select FileNumber."));
+                return RedirectToAction("Index");
+            }
+
+        }
+        [HttpGet]
+        [Authorize]
+        public ViewResult Create()
+        {
+            ViewBag.FileCatOptions = service.GetFileCatOptions();
+            ViewBag.FileClassificationOptions = service.GetFileClassificationOptions();
+            return View();
+        }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize]
+        public async Task<IActionResult> Create(FileTableCrtVM model)
+        {
+            ViewBag.FileCatOptions = service.GetFileCatOptions();
+            ViewBag.FileClassificationOptions = service.GetFileClassificationOptions();
+            
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var user = await userManager.FindByIdAsync(userId);
+            string user_name = string.Empty;
+            string ipAddress;
+
+            user_name = user != null ? (user.AppointmentName != null ? user.AppointmentName : "no name") : "no name";
+            ipAddress = Request.HttpContext.Connection.RemoteIpAddress.ToString();
+            var location = new Uri($"{Request.Scheme}://{Request.Host}{Request.Path}{Request.QueryString}");
+            var url = location.AbsoluteUri;
+
+            model.UserId = userId;
+            if (ModelState.IsValid)
+            {
+                FileCategory? fileCategory = context.FileCategorys.FirstOrDefault(x => x.FileCategoryId == model.FileCategoryId);
+                FileClassification? fileClassification = context.FileClassifications.FirstOrDefault(x=>x.FileClassificationId == model.FileClassificationId);
+                if(fileCategory!=null)
+                {
+                    if(fileCategory.FileCategoryId==2)
+                    {
+                        if(model.FileCategoryOther==null)
+                        {
+                            ModelState.AddModelError("FileCategoryOther", "Other Type Required");
+                            goto xyz;
+                        }
+                    }
+                    else
+                    {
+                        model.FileCategoryOther = null;
+                    }
+                }
+                if (fileClassification != null)
+                {
+                    if (fileClassification.FileClassificationId == 2)
+                    {
+                        if (model.FileClassificationOther == null)
+                        {
+                            ModelState.AddModelError("FileClassificationOther", "Other Type Required");
+                            goto xyz;
+                        }
+                    }
+                    else
+                    {
+                        model.FileClassificationOther = null;
+                    }
+                }
+
+                using (var transaction = contextTransaction.Database.BeginTransaction())
+                {
+                    try
+                    {
+                        FileTable fileTable = _mapper.Map<FileTableCrtVM, FileTable>(model);
+                        fileTable.FileOpenDate= TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                        //FileSerialMax? fileSerialMax = contextTransaction.FileSerialMaxes.Where(x => x.Id == 1).FirstOrDefault();
+                        //int MaxNumber = fileSerialMax.SerialMax + 1;
+                        //fileSerialMax.SerialMax = MaxNumber;
+                        //contextTransaction.Update(fileSerialMax);
+                        //fileTable.UID = MaxNumber.ToString().PadLeft(9, '0');
+                        contextTransaction.FileTables.Add(fileTable);
+                        contextTransaction.SaveChanges();
+                        transaction.Commit();
+                    }
+
+                    catch (Exception)
+                    {
+                        transaction.Rollback();
+                    }
+                }
+                service.SaveUserActivity("Create File", url, user_name, ipAddress);
+                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "Successfully created."));
+                return RedirectToAction("MyFiles");
+            }
+            xyz:
+            return View(model);
+        }
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> Edit(string Id)
+        {
+            string decryptedId = string.Empty;
+            int decryptedIntId = 0;
+            try
+            {
+                // Decrypt the  id using Unprotect method
+                decryptedId = protector.Unprotect(Id);
+                decryptedIntId = Convert.ToInt32(decryptedId);
+            }
+            catch (Exception)
+            {
+                return RedirectToAction("Error", "Error");
+            }
+
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var usera = await userManager.FindByIdAsync(userId);
+
+            FileTable? fileTable = context.FileTables.FirstOrDefault(x => x.IsDeleted == false && x.IsClose == false && x.FileTableId== decryptedIntId && x.UserId == userId);
+
+            if (fileTable != null)
+            {
+                ViewBag.FileCatOptions = service.GetFileCatOptions();
+                ViewBag.FileClassificationOptions = service.GetFileClassificationOptions();
+
+                FileTableUpdVM fileTableUpdVM = _mapper.Map<FileTable, FileTableUpdVM>(fileTable);
+                fileTableUpdVM.EncryptedId = Id;
+                return View(fileTableUpdVM);
+
+            }
+            else
+            {
+                HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to edit file detail"));
+                return RedirectToAction("MyFiles");
+            }
+
+        }
+        [HttpPost]
+        [Authorize]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(FileTableUpdVM model)
+        {
+            ViewBag.FileCatOptions = service.GetFileCatOptions();
+            ViewBag.FileClassificationOptions = service.GetFileClassificationOptions();
+
+            var userId = this.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var user = await userManager.FindByIdAsync(userId);
+            string user_name = string.Empty;
+            string ipAddress;
+
+            user_name = user != null ? (user.AppointmentName != null ? user.AppointmentName : "no name") : "no name";
+            ipAddress = Request.HttpContext.Connection.RemoteIpAddress.ToString();
+            var location = new Uri($"{Request.Scheme}://{Request.Host}{Request.Path}{Request.QueryString}");
+            var url = location.AbsoluteUri;
+
+            if (ModelState.IsValid)
+            {
+                FileCategory? fileCategory = context.FileCategorys.FirstOrDefault(x => x.FileCategoryId == model.FileCategoryId);
+                FileClassification? fileClassification = context.FileClassifications.FirstOrDefault(x => x.FileClassificationId == model.FileClassificationId);
+                if (fileCategory != null)
+                {
+                    if (fileCategory.FileCategoryId == 2)
+                    {
+                        if (model.FileCategoryOther == null)
+                        {
+                            ModelState.AddModelError("FileCategoryOther", "Other Type Required");
+                            goto xyz;
+                        }
+                    }
+                    else
+                    {
+                        model.FileCategoryOther = null;
+                    }
+                }
+                if (fileClassification != null)
+                {
+                    if (fileClassification.FileClassificationId == 2)
+                    {
+                        if (model.FileClassificationOther == null)
+                        {
+                            ModelState.AddModelError("FileClassificationOther", "Other Type Required");
+                            goto xyz;
+                        }
+                    }
+                    else
+                    {
+                        model.FileClassificationOther = null;
+                    }
+                }
+                FileTable? fileTable = context.FileTables.FirstOrDefault(x => x.IsDeleted == false && x.IsClose == false && x.FileTableId == model.FileTableId && x.UserId == userId);
+                if (fileTable != null)
+                {
+                    fileTable.FileNumber = model.FileNumber;
+                    fileTable.FileCategoryId = model.FileCategoryId;
+                    fileTable.FileCategoryOther = model.FileCategoryOther;
+                    fileTable.FileClassificationId= model.FileClassificationId;
+                    fileTable.FileClassificationOther = model.FileClassificationOther;
+                    fileTable.PreviousRef= model.PreviousRef;
+                    fileTable.NextRef= model.NextRef;
+                    fileTable.Subject= model.Subject;
+                    fileTable.Remark= model.Remark;
+                    fileTable.UpdatedBy = userId;
+                    fileTable.UpdatedAt = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"));
+                    await fileTableRepository.Update(fileTable);
+                    
+                    service.SaveUserActivity("Edit File", url, user_name, ipAddress);
+                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Success, "Successfully edit."));
+                    return RedirectToAction("MyFiles");
+                }
+                else
+                {
+                    HttpContext.Session.SetString(SessionKeyFileTableRemark, CommonServices.ShowAlert(Alerts.Warning, "Not authorized to edit file detail"));
+                    return RedirectToAction("MyFiles");
+                }
+            }
+        xyz:
+            return View(model);
+        }
+        [AcceptVerbs("Get", "Post")]
+        [AllowAnonymous]
+        public ActionResult IsFileNumberUse(string FileNumber, string initialFileNumber)
+        {
+            var fileTable = context.FileTables.FirstOrDefault(x => x.FileNumber == FileNumber);
+
+
+            if (FileNumber == initialFileNumber)
+            {
+                return Json(true);
+            }
+            else if (fileTable == null)
+            {
+                return Json(true);
+            }
+            else
+            {
+                return Json($"File Number {FileNumber} is already in use.");
+            }
+        }
+        #region PDF Created
+        public string? PdfDetailFile(int FileTableId)
+        {
+            FileTable? fileTable = context.FileTables.Find(FileTableId);
+
+            string uniqueFileName = Guid.NewGuid() + ".pdf";
+            string dest = Path.Combine(hostingEnvironment.WebRootPath, "WriteReadData", "Temp", uniqueFileName);
+
+
+            PdfDocument pdfDoc = new PdfDocument(new PdfWriter(dest));
+            pdfDoc.SetDefaultPageSize(PageSize.A4);
+            Document doc = new Document(pdfDoc);
+            doc.SetMargins(36, 36, 36, 36);
+            doc.SetFontSize(14f);
+            if (fileTable != null)
+            {
+                if (fileTable.UID != null)
+                {
+                    List<FileCategory> fileCategories = context.FileCategorys.ToList();
+                    List<FileClassification> fileClassifications = context.FileClassifications.ToList();
+                    List<SectionTable> sectionTables = context.SectionTables.ToList();
+
+                    FileTable filedetail = context.FileTables.Where(x => x.FileTableId == fileTable.FileTableId)
+                                    .Include(x => x.FileClassification)
+                                    .Include(x => x.FileCategory)
+                                    .Include(x => x.SectionTableId)
+                                    .First();
+                    FileTableVM fileTableVM = _mapper.Map<FileTable, FileTableVM>(filedetail);
+                    Image image = new Image(ImageDataFactory.Create(service.GetBarcodeImage(fileTable.UID)));
+                    image.SetMargins(0, 0, 0, 0);
+                    image.ScaleAbsolute(162, 88);
+                    image.SetHorizontalAlignment(HorizontalAlignment.CENTER);
+                    //image.ScaleAbsolute(180, 70);
+
+                    Table table = new Table(2);
+                    table.SetPadding(5);
+                    table.SetSpacingRatio(2);
+                    table.SetBorder(Border.NO_BORDER);
+                    Cell cell_1 = new Cell().Add(new Paragraph("File Originator"));
+                    cell_1.SetWidth(144);
+                    Cell cell_2 = new Cell().Add(new Paragraph(fileTableVM.FileCategory.FileCategoryId==2? fileTableVM.FileCategoryOther: fileTableVM.FileCategory.FileCategoryName.ToString()));
+                    cell_2.SetWidth(379);
+                    
+                    Cell cell_3 = new Cell().Add(new Paragraph("Name of the file"));
+                    cell_3.SetWidth(144);
+                    Cell cell_4 = new Cell().Add(new Paragraph(fileTableVM.Subject.ToString()));
+                    cell_4.SetWidth(379);
+                    
+                    Cell cell_5 = new Cell().Add(new Paragraph("File Number"));
+                    cell_5.SetWidth(144);
+                    Cell cell_6 = new Cell().Add(new Paragraph(fileTableVM.FileNumber.ToString()));
+                    cell_6.SetWidth(379);
+                    
+                    Cell cell_7 = new Cell().Add(new Paragraph("Date of File Opened"));
+                    cell_7.SetWidth(144);
+                    Cell cell_8 = new Cell().Add(new Paragraph(fileTable.FileOpenDate.ToString()));
+                    cell_8.SetWidth(379);
+
+                    Cell cell_9 = new Cell().Add(new Paragraph("Created By"));
+                    cell_9.SetWidth(144);
+                    string CreatedBy = context.Users.Where(x => x.Id == Convert.ToInt32(fileTable.UserId)).Select(x => x.AppointmentName).First().ToString();
+                    Cell cell_10 = new Cell().Add(new Paragraph(CreatedBy));
+                    cell_10.SetWidth(379);
+                    
+                    Cell cell_11 = new Cell().Add(new Paragraph("Created By Section"));
+                    cell_11.SetWidth(144);
+                    int SectionTableId = context.Users.Where(x => x.Id == Convert.ToInt32(fileTable.UserId)).Select(x => x.SectionTableId).First();
+                    string CreatedBySection = (from c in sectionTables
+                                               where c.SectionTableId == SectionTableId
+                                               select c.SectionName).First();
+                    Cell cell_12 = new Cell().Add(new Paragraph(CreatedBySection));
+                    cell_12.SetWidth(379);
+
+                    Cell cell_13 = new Cell().Add(new Paragraph("File Classification"));
+                    cell_13.SetWidth(144);
+                    Cell cell_14 = new Cell().Add(new Paragraph(fileTableVM.FileClassification.FileClassificationId == 2 ? fileTableVM.FileClassificationOther : fileTableVM.FileClassification.FileClassificationName.ToString()));
+                    cell_14.SetWidth(379);
+
+                    table.AddCell(cell_1);
+                    table.AddCell(cell_2);
+                    table.AddCell(cell_3);
+                    table.AddCell(cell_4);
+                    table.AddCell(cell_5);
+                    table.AddCell(cell_6);
+                    table.AddCell(cell_7);
+                    table.AddCell(cell_8);
+                    table.AddCell(cell_9);
+                    table.AddCell(cell_10);
+                    table.AddCell(cell_13);
+                    table.AddCell(cell_14);
+                    table.AddCell(cell_11);
+                    table.AddCell(cell_12);
+                    table.SetMarginBottom(10f);
+                    string TableHeading = "DGAFMS";
+                    Paragraph paragraph = new Paragraph(TableHeading);
+                    paragraph.SetFontSize(32f);
+                    paragraph.SetTextAlignment(TextAlignment.CENTER);
+                    paragraph.SetBold();
+                    doc.Add(paragraph);
+                    doc.Add(table);
+                    doc.Add(image);
+                    doc.Close();
+                    return dest;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
+        public string? PdfBarcodeFile(int FileTableId)
+        {
+            FileTable? fileTable = context.FileTables.Find(FileTableId);
+
+            string uniqueFileName = Guid.NewGuid() + ".pdf";
+            string dest = Path.Combine(hostingEnvironment.WebRootPath, "WriteReadData", "Temp", uniqueFileName);
+
+            PdfDocument pdfDoc = new PdfDocument(new PdfWriter(dest));
+            Rectangle one = new Rectangle(180, 108);
+            pdfDoc.SetDefaultPageSize(new PageSize(one));
+            Document doc = new Document(pdfDoc);
+            doc.SetMargins(9, 9, 9, 9);
+            if (fileTable != null)
+            {
+                if (fileTable.UID != null)
+                {
+                    Image image = new Image(ImageDataFactory.Create(service.GetBarcodeImage(fileTable.UID)));
+                    image.SetMargins(0, 0, 0, 0);
+                    image.ScaleAbsolute(162, 88);
+                    //image.ScaleAbsolute(180, 70);
+                    doc.Add(image);
+                    doc.Close();
+                    return dest;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
+        public Cell CreateBarcode(int FileTableId)
+        {
+            FileTable fileTable = context.FileTables.Find(FileTableId);
+
+            //byte[] data = Convert.FromBase64String(GetBarcode(fileTable.UID));
+            //Image image = new Image(ImageDataFactory.Create(data));
+            Image image2 = new Image(ImageDataFactory.Create(service.GetBarcodeImage(fileTable.UID)));
+            image2.SetMargins(0, 0, 0, 0);
+            image2.ScaleAbsolute(180, 70);
+            //image.SetProperty(Property.FLOAT, FloatPropertyValue.LEFT);
+
+            Cell cell = new Cell().Add(image2);
+            cell.SetVerticalAlignment(VerticalAlignment.MIDDLE);
+            cell.SetHorizontalAlignment(HorizontalAlignment.CENTER);
+            cell.SetBorder(Border.NO_BORDER);
+            cell.SetHeight(108);
+            //cell.SetPaddingTop(1);
+            //cell.SetPaddingRight(1);
+            //cell.SetPaddingBottom(1);
+            //cell.SetPaddingLeft(1);
+
+            return cell;
+        }
+        public string ManipulatePdf(List<int> FileTableIds)
+        {
+            string uniqueFileName = Guid.NewGuid() + ".pdf";
+            string dest = Path.Combine(hostingEnvironment.WebRootPath, "WriteReadData", "Temp", uniqueFileName);
+
+            PdfDocument pdfDoc = new PdfDocument(new PdfWriter(dest));
+            pdfDoc.SetDefaultPageSize(PageSize.A4);
+
+            //Document doc = new Document(pdfDoc);
+            //Table table = new Table(UnitValue.CreatePercentArray(3)).UseAllAvailableWidth();
+            int TotalPages = FileTableIds.Count / 21;
+            int rem = FileTableIds.Count % 21;
+            if (TotalPages > 0 && rem > 0)
+            {
+                int count = 0;
+                Document doc = new Document(pdfDoc);
+                for (int j = 1; j <= TotalPages; j++)
+                {
+                    doc.SetMargins(36, 15, 14, 18);
+                    Table table = new Table(3);
+                    table.SetWidth(189.33f);
+                    for (int i = 0; i < 21; i++)
+                    {
+                        table.AddCell(CreateBarcode(FileTableIds[count]));
+                        count++;
+                    }
+                    doc.Add(table);
+                }
+                Table tablerem = new Table(3);
+                tablerem.SetWidth(189.33f);
+                for (int k = 0; k < rem; k++)
+                {
+                    tablerem.AddCell(CreateBarcode(FileTableIds[count]));
+                    count++;
+                }
+                doc.Add(tablerem);
+                doc.Close();
+            }
+            else if (TotalPages > 0 && rem == 0)
+            {
+                int count = 0;
+                for (int j = 1; j <= TotalPages; j++)
+                {
+                    Document doc = new Document(pdfDoc);
+                    doc.SetMargins(36, 15, 14, 18);
+                    Table table = new Table(3);
+                    table.SetWidth(189.33f);
+                    for (int i = 0; i < 22; i++)
+                    {
+                        table.AddCell(CreateBarcode(FileTableIds[count]));
+                        count++;
+                    }
+                    doc.Add(table);
+                    doc.Close();
+                }
+            }
+            else if (TotalPages == 0 && rem > 0)
+            {
+                int count = 0;
+                Document doc2 = new Document(pdfDoc);
+                doc2.SetMargins(36, 15, 14, 18);
+                Table tablerem = new Table(3);
+                tablerem.SetWidth(189.33f);
+                //tablerem.SetFixedLayout();
+                //tablerem.SetBorder(Border.NO_BORDER);
+                for (int k = 0; k < rem; k++)
+                {
+                    tablerem.AddCell(CreateBarcode(FileTableIds[count]));
+                    count++;
+                }
+                doc2.Add(tablerem);
+                doc2.Close();
+            }
+            return dest;
+        }
+        #endregion
+    }
+}
